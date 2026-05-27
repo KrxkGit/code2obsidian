@@ -66,3 +66,36 @@ def test_collect_symbols_dedup_same_name_in_multiple_files():
     ]
     _, sym_map = collect_symbols(iter(tags))
     assert sym_map["Logger"] == {"Logger"}  # 都映射到同一 basename
+
+
+def test_collect_symbols_alias_and_namespace_are_indexed():
+    """ts 的 alias / namespace 必须既出现在文件展示中，也参与依赖撞库。"""
+    tags = [
+        {"path": "/p/types.ts", "name": "UserId", "kind": "alias", "line": 1},
+        {"path": "/p/types.ts", "name": "Callback", "kind": "alias", "line": 2},
+        {"path": "/p/ns.ts", "name": "MyNs", "kind": "namespace", "line": 1},
+        {"path": "/p/svc.ts", "name": "save", "kind": "method", "line": 5,
+         "signature": "(id: UserId, cb: Callback<MyNs>)"},
+    ]
+    vault, sym_map = collect_symbols(iter(tags))
+    # 1) 进入符号表：可被其它文件签名撞库
+    assert "UserId" in sym_map
+    assert "Callback" in sym_map
+    assert "MyNs" in sym_map
+    # 2) 进入展示字段：而不是被静默丢弃
+    assert any("UserId" in t for t in vault["/p/types.ts"].types)
+    assert any("MyNs" in t for t in vault["/p/ns.ts"].types)
+    # 3) signature 撞库成功，svc.ts 应当依赖 types.ts 与 ns.ts
+    deps = vault["/p/svc.ts"].requires
+    assert {"types", "ns"}.issubset(deps)
+
+
+def test_collect_symbols_scope_field_resolves_dependency():
+    """ts 嵌套类的 scope 字段也应当促成依赖关系（class Inner scope=MyNs）。"""
+    tags = [
+        {"path": "/p/ns.ts", "name": "MyNs", "kind": "namespace", "line": 1},
+        {"path": "/p/inner.ts", "name": "Inner", "kind": "class", "line": 2,
+         "scope": "MyNs", "scopeKind": "namespace"},
+    ]
+    vault, _ = collect_symbols(iter(tags))
+    assert "ns" in vault["/p/inner.ts"].requires

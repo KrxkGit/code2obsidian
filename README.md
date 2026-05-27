@@ -82,6 +82,7 @@ python run.py -s ./src -o /Users/you/Vault/CodeWiki
 | `--timeout` | 单次 LLM 超时（秒） | `30` |
 | `--retries` | LLM 失败重试次数 | `2` |
 | `--include-ext` | 仅处理扩展名（逗号分隔，如 `.py,.ts`） | 全部 |
+| `--lang-map` | 把扩展名视为某语言（如 `.ets=TypeScript`） | 空 |
 | `--no-ai` | 跳过 LLM，仅生成确定性骨架 | 关 |
 | `--force` | 覆盖已存在的 md | 关（断点续跑） |
 | `-v, --verbose` | 调试日志 | 关 |
@@ -135,6 +136,33 @@ code2obsidian --threads 32           # CLI 实参覆盖文件中的 threads
 > Python 3.11+ 使用标准库 `tomllib` 解析；3.10 及以下若已安装 `tomli` 则使用之，
 > 否则自动回退到内置 mini 解析器（覆盖本工具所需的标量/嵌套段语法，零额外依赖）。
 
+## 🌐 语言映射（让 ctags 认识小众语言）
+
+ctags 默认不识别一些扩展名（如 HarmonyOS **ArkTS `.ets`**），但它们的语法往往是某种主流语言的"近亲"。
+通过 `lang_map` 可以告诉 ctags："**把这个扩展名按那种语言来解析**"——一行配置即可让 ArkTS / Vue SFC / 自定义模板等纳入符号网。
+
+**配置文件写法**（推荐）：
+
+```toml
+[code2obsidian.lang_map]
+".ets" = "TypeScript"     # ArkTS 视为 TS
+".mts" = "TypeScript"
+".cts" = "TypeScript"
+```
+
+**命令行写法**（等价）：
+
+```bash
+code2obsidian -s ./entry/src -o ~/Vault/HarmonyOS \
+    --include-ext .ts \
+    --lang-map ".ets=TypeScript,.mts=TypeScript"
+```
+
+> 💡 **智能联动**：当你同时使用 `--include-ext .ts` 和 `lang_map`，工具会自动把 `.ets` 等被映射的扩展名一起放行，无需手动加。
+>
+> 📋 用 `ctags --list-languages` 可以查看你本地 ctags 支持的所有语言名。
+
+
 ## 🧱 项目结构
 
 ```
@@ -164,7 +192,3 @@ pip install -e ".[dev]"
 pytest -q
 ruff check src
 ```
-
-## 📜 License
-
-MIT

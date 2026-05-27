@@ -51,6 +51,10 @@ def render_markdown(
     lines.append("\n### 🏛️ 核心类型声明")
     lines.append("\n".join(node.classes) if node.classes else "_无类声明_")
 
+    if node.types:
+        lines.append("\n### 🧬 类型别名 / 命名空间")
+        lines.append("\n".join(node.types))
+
     lines.append("\n### ⚙️ 暴露的方法与函数签名")
     lines.append("\n".join(node.functions) if node.functions else "_无独立函数声明_")
 

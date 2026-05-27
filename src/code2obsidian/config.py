@@ -27,6 +27,7 @@ def _norm(key: str) -> str:
 ALLOWED_KEYS = {
     "source", "output", "model", "url", "threads", "timeout",
     "retries", "include_ext", "no_ai", "force", "verbose",
+    "lang_map",  # dict[str, str]: 扩展名 → ctags 语言名，如 {".ets": "TypeScript"}
 }
 
 
@@ -76,13 +77,17 @@ def _mini_toml_parse(text: str) -> Dict[str, Any]:
         if "=" not in line:
             raise ValueError(f"无法解析 TOML 行: {raw_line!r}")
         key, _, val = line.partition("=")
+        key = key.strip()
+        # 支持带引号的 key（如 ".ets" = "TypeScript"），mini 子集
+        if (key.startswith('"') and key.endswith('"')) or (key.startswith("'") and key.endswith("'")):
+            key = key[1:-1]
         # 去掉行内注释（仅在不是字符串内部时；mini 实现采用近似策略）
         val = val.strip()
         if val and val[0] not in ("\"", "'"):
             hash_pos = val.find("#")
             if hash_pos >= 0:
                 val = val[:hash_pos].strip()
-        cur[key.strip()] = _mini_toml_value(val)
+        cur[key] = _mini_toml_value(val)
     return root
 
 
@@ -112,13 +117,21 @@ def _flatten(data: Dict[str, Any]) -> Dict[str, Any]:
     """
     把 toml 解析结果展开成扁平 dict。
     既支持顶层 `threads = 16`，也支持 [code2obsidian] / [tool.code2obsidian] 嵌套。
+    例外：`lang_map` 需要保留为 dict（可能写成 [code2obsidian.lang_map] 子表）。
     """
     flat: Dict[str, Any] = {}
-    # 1) 顶层标量字段
-    for k, v in data.items():
-        if not isinstance(v, dict):
-            flat[_norm(k)] = v
-    # 2) 已知 section（按优先级递增覆盖：顶层 < code2obsidian < tool.code2obsidian）
+
+    def _absorb(section: Dict[str, Any]) -> None:
+        for k, v in section.items():
+            nk = _norm(k)
+            if nk == "lang_map" and isinstance(v, dict):
+                flat[nk] = {str(kk): str(vv) for kk, vv in v.items()}
+            elif not isinstance(v, dict):
+                flat[nk] = v
+
+    # 1) 顶层
+    _absorb(data)
+    # 2) 已知 section（优先级递增覆盖：顶层 < code2obsidian < tool.code2obsidian）
     for section_path in (("code2obsidian",), ("tool", "code2obsidian")):
         cur: Any = data
         for part in section_path:
@@ -127,9 +140,7 @@ def _flatten(data: Dict[str, Any]) -> Dict[str, Any]:
                 break
             cur = cur[part]
         if isinstance(cur, dict):
-            for k, v in cur.items():
-                if not isinstance(v, dict):
-                    flat[_norm(k)] = v
+            _absorb(cur)
     return flat
 
 
@@ -196,4 +207,11 @@ include_ext = ""
 no_ai   = false
 force   = false
 verbose = false
+
+# 将某些扩展名“视为”某种语言让 ctags 解析（如 ArkTS/.ets 当 TypeScript）。
+# key 为扩展名（包含点号），value 为 ctags 语言名；可用 `ctags --list-languages` 查看完整列表。
+[code2obsidian.lang_map]
+# ".ets" = "TypeScript"
+# ".mts" = "TypeScript"
+# ".cts" = "TypeScript"
 """

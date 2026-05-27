@@ -13,6 +13,8 @@ class FileNode:
     classes: List[str] = field(default_factory=list)
     functions: List[str] = field(default_factory=list)
     members: List[str] = field(default_factory=list)
+    # type alias / namespace / typedef 等"类型层"声明，用于 ts/ets 等语言的弱类型符号
+    types: List[str] = field(default_factory=list)
     requires: Set[str] = field(default_factory=set)
 
 

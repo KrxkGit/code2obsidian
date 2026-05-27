@@ -59,6 +59,23 @@ nonsense_field = "x"
     assert "threads" in ALLOWED_KEYS
 
 
+def test_load_config_lang_map_nested_section():
+    with tempfile.TemporaryDirectory() as d:
+        path = _write(Path(d), "code2obsidian.toml", """
+[code2obsidian]
+threads = 2
+
+[code2obsidian.lang_map]
+".ets" = "TypeScript"
+".mts" = "TypeScript"
+""")
+        cfg = load_config(path)
+    assert cfg["threads"] == 2
+    assert isinstance(cfg["lang_map"], dict)
+    assert cfg["lang_map"][".ets"] == "TypeScript"
+    assert cfg["lang_map"][".mts"] == "TypeScript"
+
+
 def test_find_config_path_explicit_missing(tmp_path=None):
     # explicit 不存在 → None
     assert find_config_path("/no/such/file.toml", None) is None

@@ -15,7 +15,7 @@ from .models import TaskCtx
 from .pipeline import run_pipeline
 from .symbols import collect_symbols
 
-# 所有可配置项的「默认值表」——也是配置合并的最后一层兜底
+# 所有可配置项的「默认值表」——也是配置合并的最后一层兏底
 DEFAULTS: Dict[str, Any] = {
     "source": "./src",
     "output": None,           # 必填，无默认
@@ -28,8 +28,8 @@ DEFAULTS: Dict[str, Any] = {
     "no_ai": False,
     "force": False,
     "verbose": False,
+    "lang_map": {},  # {".ets": "TypeScript", ...}
 }
-
 
 def _build_parser() -> argparse.ArgumentParser:
     """
@@ -63,6 +63,10 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("-v", "--verbose", action="store_true",
                         default=argparse.SUPPRESS, help="输出调试日志")
 
+    parser.add_argument("--lang-map", default=argparse.SUPPRESS,
+                        help="将扩展名视为某种语言让 ctags 解析，逗号分隔。"
+                             "如：--lang-map .ets=TypeScript,.mts=TypeScript")
+
     # 元控制参数（不属于业务字段，正常给默认值）
     parser.add_argument("-c", "--config", default=None,
                         help="显式指定配置文件路径（默认查找 ./code2obsidian.toml）")
@@ -81,6 +85,44 @@ def _parse_include_exts(raw: str) -> Optional[Set[str]]:
         (e if e.startswith(".") else "." + e).lower()
         for e in raw.split(",") if e.strip()
     }
+
+
+def _parse_lang_map_cli(raw: Any) -> Dict[str, str]:
+    """解析 CLI --lang-map 参数。输入如 '.ets=TypeScript,.mts=TypeScript'。"""
+    if not raw:
+        return {}
+    if isinstance(raw, dict):
+        return {str(k): str(v) for k, v in raw.items()}
+    out: Dict[str, str] = {}
+    for pair in str(raw).split(","):
+        pair = pair.strip()
+        if not pair or "=" not in pair:
+            continue
+        ext, _, lang = pair.partition("=")
+        ext = ext.strip()
+        lang = lang.strip()
+        if not ext or not lang:
+            continue
+        if not ext.startswith("."):
+            ext = "." + ext
+        out[ext.lower()] = lang
+    return out
+
+
+def _normalize_lang_map(raw: Any) -> Dict[str, str]:
+    """统一备选源（CLI 字符串 / TOML dict）为规范化后的 dict。"""
+    if isinstance(raw, dict):
+        out: Dict[str, str] = {}
+        for k, v in raw.items():
+            ext = str(k).strip().lower()
+            lang = str(v).strip()
+            if not ext or not lang:
+                continue
+            if not ext.startswith("."):
+                ext = "." + ext
+            out[ext] = lang
+        return out
+    return _parse_lang_map_cli(raw)
 
 
 def _merge_settings(cli_ns: argparse.Namespace) -> Dict[str, Any]:
@@ -137,10 +179,21 @@ def main(argv: Optional[List[str]] = None) -> int:
     os.makedirs(output, exist_ok=True)
 
     include_exts = _parse_include_exts(cfg["include_ext"])
+    lang_map = _normalize_lang_map(cfg.get("lang_map"))
+    # 如果用户限定了扩展名，自动把 lang_map 中的 key 也加入白名单，
+    # 避免“--include-ext .ts 却过滤掉被视为 TS 的 .ets”这种逆直觉陷阱。
+    if include_exts and lang_map:
+        added = set(lang_map.keys()) - include_exts
+        if added:
+            include_exts = include_exts | set(lang_map.keys())
+            logger.info(
+                "🔗 lang_map 自动打通 include_ext：新增 %s",
+                ",".join(sorted(added)),
+            )
     if include_exts:
         logger.info("📎 仅处理扩展名: %s", ",".join(sorted(include_exts)))
 
-    tags_iter = run_ctags(cfg["source"])
+    tags_iter = run_ctags(cfg["source"], lang_map=lang_map)
     file_vault, global_symbol_map = collect_symbols(tags_iter, include_exts)
 
     if not file_vault:
