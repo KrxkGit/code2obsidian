@@ -6,6 +6,7 @@ import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, List, Tuple
 
+from .incremental import read_old_summary, render_markdown_with_change
 from .logging_utils import logger
 from .models import TaskCtx
 from .ollama_client import get_ai_summary
@@ -17,11 +18,28 @@ def process_single_file(ctx: TaskCtx, session: Any) -> Tuple[str, str]:
     safe_stem = safe_wiki_name(ctx.pure_filename)
     md_path = os.path.join(ctx.output_dir, f"{safe_stem}.md")
 
-    if (not ctx.force) and os.path.exists(md_path):
+    # 普通（非增量）模式下的断点续跑
+    if (not ctx.force) and (not ctx.reuse_old_summary) and os.path.exists(md_path):
         return ctx.pure_filename, "skipped"
 
+    # 决定 AI summary 的来源
     if ctx.no_ai:
         ai_summary = "（已跳过 AI 摘要）"
+    elif ctx.reuse_old_summary:
+        # 增量模式：优先复用旧 md 中的 summary，缺失时再调用 LLM
+        old = read_old_summary(md_path)
+        if old:
+            ai_summary = old
+        else:
+            ai_summary = get_ai_summary(
+                session,
+                ctx.api_url,
+                ctx.model_name,
+                ctx.pure_filename + ctx.ext,
+                ctx.node,
+                ctx.timeout,
+                ctx.retries,
+            )
     else:
         ai_summary = get_ai_summary(
             session,
@@ -33,7 +51,17 @@ def process_single_file(ctx: TaskCtx, session: Any) -> Tuple[str, str]:
             ctx.retries,
         )
 
-    md = render_markdown(ctx.raw_path, ctx.pure_filename, ctx.ext, ctx.node, ai_summary)
+    # 增量模式 + 有变更记录 → 在文档顶部插入"最近变更"小节
+    if ctx.change is not None:
+        md = render_markdown_with_change(
+            ctx.raw_path, ctx.pure_filename, ctx.ext, ctx.node,
+            ai_summary, ctx.change, ctx.commit_a, ctx.commit_b,
+        )
+    else:
+        md = render_markdown(
+            ctx.raw_path, ctx.pure_filename, ctx.ext, ctx.node, ai_summary,
+        )
+
     tmp = md_path + ".tmp"
     with open(tmp, "w", encoding="utf-8") as fh:
         fh.write(md)

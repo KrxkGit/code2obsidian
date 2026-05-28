@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import List, Set
+from typing import Any, List, Optional, Set
 
 
 @dataclass
@@ -33,3 +33,10 @@ class TaskCtx:
     retries: int
     no_ai: bool
     force: bool
+    # ---- 增量分析相关（普通模式下保持默认值，不影响行为）----
+    # 增量模式：复用旧 md 的 LLM 摘要，避免每次 diff 都重跑昂贵的模型
+    reuse_old_summary: bool = False
+    # 该文件在 git diff 中的变更记录（None 表示反向依赖文件，不在 diff 内）
+    change: Optional[Any] = None  # 实际类型 ChangeRecord，避免循环依赖此处用 Any
+    commit_a: str = ""
+    commit_b: str = ""

@@ -17,6 +17,7 @@ ctags 流式扫描  →  跨文件符号网（精准单词边界匹配）
 - **精准依赖**：单词边界正则杜绝 `User → UserService` 误匹配
 - **本地 LLM 摘要**：默认走 `qwen3:8b`，自带超时 + 重试 + `<think>` 噪声清洗
 - **断点续跑**：默认跳过已生成的 md，`--force` 才覆盖
+- **🔄 增量分析**：基于 `git diff` 的两 commit 区间增量重建，复用旧 LLM 摘要 + 反向依赖刷新 + 变更总览报告
 - **进度条**：`tqdm` 实时显示成功 / 跳过 / 失败计数
 - **流式 ctags**：超大仓库不会撑爆内存
 - **原子写**：`.tmp` + `os.replace`，防止半截文件
@@ -85,6 +86,9 @@ python run.py -s ./src -o /Users/you/Vault/CodeWiki
 | `--lang-map` | 把扩展名视为某语言（如 `.ets=TypeScript`） | 空 |
 | `--no-ai` | 跳过 LLM，仅生成确定性骨架 | 关 |
 | `--force` | 覆盖已存在的 md | 关（断点续跑） |
+| `--diff-from` | **增量模式起点** commit / 分支 / tag（提供后启用增量分析） | — |
+| `--diff-to` | 增量模式终点 | `HEAD` |
+| `--diff-report` | 变更报告输出路径 | `<output>/_CHANGES_<a>_<b>.md` |
 | `-v, --verbose` | 调试日志 | 关 |
 | `-V, --version` | 版本号 | — |
 
@@ -99,6 +103,54 @@ code2obsidian -s ./web/src -o ~/Vault/Web \
 code2obsidian -s ./services -o ~/Vault/Backend \
     --include-ext .go --model deepseek-coder:6.7b --threads 16
 ```
+
+## 🔄 增量分析（Git Diff）
+
+首次全量建好知识库之后，只要传入 `--diff-from`，就会进入**增量模式**：
+仅重建变更文件 + 受影响的反向依赖文件，并额外产出一份「**变更总览报告**」，
+非常适合**排 bug、Code Review、版本对比**等场景。
+
+### 用法
+
+```bash
+# 1. 排 bug：看最近 5 个 commit 改动了什么
+code2obsidian -s ./src -o ~/Vault/CodeWiki \
+    --diff-from HEAD~5
+
+# 2. 跨分支对比（feature 分支引入了什么）
+code2obsidian -s ./src -o ~/Vault/CodeWiki \
+    --diff-from main --diff-to feature/foo
+
+# 3. 自定义报告输出路径
+code2obsidian -s ./src -o ~/Vault/CodeWiki \
+    --diff-from v1.0 --diff-to v1.1 \
+    --diff-report /tmp/v1.0-to-v1.1.md
+```
+
+### 增量模式做了什么
+
+| 行为 | 说明 |
+|---|---|
+| **变更识别** | `git diff -M` 抓取 A/M/D/R 四类动作，自动识别重命名 |
+| **反向依赖刷新** | 扫描旧 vault，把 `requires` 命中变更文件的 md 也加入重建列表（依赖网不会陈旧） |
+| **🔥 最近变更小节** | 每个变更文件 md 顶部插入「区间 / 行数 / 状态」徽章块 |
+| **复用旧 summary** | 增量模式默认**不重跑昂贵的 LLM**——直接从旧 md 的 frontmatter 取 `summary`，缺失时才调 Ollama |
+| **删除清理** | git 已删除的源码，对应 md 会被物理移除 |
+| **变更报告** | 单独生成 `_CHANGES_<from>_<to>.md`，按 ✏️/🆕/🔀/🗑️ 分组列出每个文件的符号统计与依赖列表 |
+
+### 输出示例
+
+```
+🔄 [增量] git diff abc1234..HEAD → 修改 6 / 新增 0 / 重命名 0 / 删除 0
+🔁 反向依赖刷新：4 个文件
+🚀 [增量] 启动重建（线程: 8, 模型: qwen3:8b, AI: on, 复用旧摘要: 是）
+📝 变更报告 → ~/Vault/CodeWiki/_CHANGES_abc1234_HEAD.md
+🎉 [增量] 完成！更新 10 / 跳过 0 / 失败 0 / 删除 0 / 反向依赖 4
+```
+
+> 💡 **零回归**：未传 `--diff-from` 时走的就是和以前完全一致的全量流程。
+>
+> ⚠️ **前提**：`source` 目录必须位于 git 仓库内，否则会直接报错并提示。
 
 ## 🗂 配置文件（可选）
 
@@ -181,6 +233,7 @@ code2obsidian/
         ├── ollama_client.py    # LLM 摘要 + 重试
         ├── renderer.py         # YAML / wiki-link / markdown
         ├── pipeline.py         # 并发执行 + tqdm 进度条
+        ├── incremental.py      # 🔄 git diff 增量分析 + 变更报告
         ├── models.py           # FileNode / TaskCtx
         └── logging_utils.py
 ```

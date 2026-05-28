@@ -29,6 +29,10 @@ DEFAULTS: Dict[str, Any] = {
     "force": False,
     "verbose": False,
     "lang_map": {},  # {".ets": "TypeScript", ...}
+    # 增量分析：未指定 diff_from 时走全量流程
+    "diff_from": None,
+    "diff_to": "HEAD",
+    "diff_report": None,
 }
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -66,6 +70,16 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--lang-map", default=argparse.SUPPRESS,
                         help="将扩展名视为某种语言让 ctags 解析，逗号分隔。"
                              "如：--lang-map .ets=TypeScript,.mts=TypeScript")
+
+    # ---- 增量分析（可选）----
+    parser.add_argument("--diff-from", default=argparse.SUPPRESS,
+                        help="增量分析起点 commit / 分支 / tag；"
+                             "提供后只重建变更文件的 md，并生成变更报告")
+    parser.add_argument("--diff-to", default=argparse.SUPPRESS,
+                        help="增量分析终点（默认 HEAD）")
+    parser.add_argument("--diff-report", default=argparse.SUPPRESS,
+                        help="变更报告输出路径（默认放在 output 目录下，"
+                             "命名为 _CHANGES_<from>_<to>.md）")
 
     # 元控制参数（不属于业务字段，正常给默认值）
     parser.add_argument("-c", "--config", default=None,
@@ -205,6 +219,10 @@ def main(argv: Optional[List[str]] = None) -> int:
         len(global_symbol_map), len(file_vault),
     )
 
+    # 增量模式分流：指定了 diff_from 就只处理变更文件 + 反向依赖
+    if cfg.get("diff_from"):
+        return _run_incremental(cfg, file_vault, output)
+
     tasks: List[TaskCtx] = []
     for raw_path, node in file_vault.items():
         pure_filename = os.path.splitext(os.path.basename(raw_path))[0]
@@ -232,6 +250,128 @@ def main(argv: Optional[List[str]] = None) -> int:
     logger.info(
         "🎉 完成！成功 %d / 跳过 %d / 失败 %d → %s",
         ok, skipped, failed, output,
+    )
+    return 0 if failed == 0 else 2
+
+
+def _run_incremental(
+    cfg: Dict[str, Any],
+    file_vault: Dict[str, Any],
+    output: str,
+) -> int:
+    """增量模式：只重建 diff 范围内 + 反向依赖文件的 md，并生成变更报告。"""
+    from .incremental import (
+        diff_files,
+        handle_deletions,
+        render_changes_report,
+        reverse_deps_of,
+    )
+
+    commit_a = cfg["diff_from"]
+    commit_b = cfg.get("diff_to") or "HEAD"
+    include_exts = _parse_include_exts(cfg["include_ext"])
+
+    try:
+        git_root, changes = diff_files(
+            cfg["source"], commit_a, commit_b, include_exts,
+        )
+    except RuntimeError as e:
+        logger.error("❌ 增量分析失败: %s", e)
+        return 1
+
+    if not changes:
+        logger.info("✨ 在 %s..%s 之间没有发现匹配的源码变更，无需更新", commit_a, commit_b)
+        return 0
+
+    by_status: Dict[str, int] = {"A": 0, "M": 0, "D": 0, "R": 0}
+    for c in changes:
+        by_status[c.status] = by_status.get(c.status, 0) + 1
+    logger.info(
+        "🔄 [增量] git diff %s..%s → 修改 %d / 新增 %d / 重命名 %d / 删除 %d（git_root: %s）",
+        commit_a, commit_b,
+        by_status.get("M", 0), by_status.get("A", 0),
+        by_status.get("R", 0), by_status.get("D", 0),
+        git_root,
+    )
+
+    # 1) 处理删除：从 vault 物理删除对应 md
+    deletions = [c for c in changes if c.is_delete]
+    deleted_basenames = handle_deletions(deletions, output)
+
+    # 2) 找反向依赖文件（旧 vault 里 requires 包含变更/删除文件 basename 的）
+    changed_basenames = {c.basename for c in changes}
+    affected_paths = reverse_deps_of(output, changed_basenames)
+    # 反向依赖文件如果它本身就在 changes 里，避免重复
+    in_changes = {c.path for c in changes}
+    affected_paths -= in_changes
+    if affected_paths:
+        logger.info("🔁 反向依赖刷新：%d 个文件", len(affected_paths))
+
+    # 3) 构建任务：变更文件（非删除） + 反向依赖文件
+    change_by_path = {c.path: c for c in changes if not c.is_delete}
+    target_paths: List[str] = list(change_by_path.keys()) + list(affected_paths)
+
+    tasks: List[TaskCtx] = []
+    missing: List[str] = []
+    for raw_path in target_paths:
+        node = file_vault.get(raw_path)
+        if node is None:
+            # 该文件在终点 commit 不存在或被 ctags 跳过
+            missing.append(raw_path)
+            continue
+        pure_filename = os.path.splitext(os.path.basename(raw_path))[0]
+        ext = os.path.splitext(raw_path)[1]
+        tasks.append(TaskCtx(
+            raw_path=raw_path,
+            node=node,
+            pure_filename=pure_filename,
+            ext=ext,
+            output_dir=output,
+            api_url=cfg["url"],
+            model_name=cfg["model"],
+            timeout=cfg["timeout"],
+            retries=cfg["retries"],
+            no_ai=cfg["no_ai"],
+            force=True,                 # 增量模式下本来就要覆盖
+            reuse_old_summary=True,     # 优先复用旧 LLM 摘要
+            change=change_by_path.get(raw_path),  # 反向依赖文件无 change
+            commit_a=commit_a,
+            commit_b=commit_b,
+        ))
+
+    if missing:
+        logger.warning(
+            "⚠️ %d 个变更/反向依赖文件未在 ctags 输出中出现（可能是非源码或 include_ext 过滤）：%s",
+            len(missing), ", ".join(os.path.basename(p) for p in missing[:5]),
+        )
+
+    if tasks:
+        logger.info(
+            "🚀 [增量] 启动重建（线程: %d, 模型: %s, AI: %s, 复用旧摘要: 是）",
+            cfg["threads"], cfg["model"], "off" if cfg["no_ai"] else "on",
+        )
+        ok, skipped, failed = run_pipeline(tasks, cfg["threads"])
+    else:
+        ok = skipped = failed = 0
+
+    # 4) 生成变更报告
+    report_path = cfg.get("diff_report")
+    if not report_path:
+        # 默认放在 output 下
+        safe_a = commit_a.replace("/", "_")[:12]
+        safe_b = commit_b.replace("/", "_")[:12]
+        report_path = os.path.join(output, f"_CHANGES_{safe_a}_{safe_b}.md")
+    report_md = render_changes_report(
+        commit_a, commit_b, changes, file_vault, output, affected_paths,
+    )
+    os.makedirs(os.path.dirname(os.path.abspath(report_path)), exist_ok=True)
+    with open(report_path, "w", encoding="utf-8") as fh:
+        fh.write(report_md)
+    logger.info("📝 变更报告 → %s", report_path)
+
+    logger.info(
+        "🎉 [增量] 完成！更新 %d / 跳过 %d / 失败 %d / 删除 %d / 反向依赖 %d → %s",
+        ok, skipped, failed, len(deleted_basenames), len(affected_paths), output,
     )
     return 0 if failed == 0 else 2
 
