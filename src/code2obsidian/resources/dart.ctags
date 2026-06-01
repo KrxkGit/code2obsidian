@@ -1,0 +1,59 @@
+--langdef=Dart
+--map-Dart=+.dart
+
+--kinddef-Dart=c,class,classes
+--kinddef-Dart=i,interface,mixins and abstract interfaces
+--kinddef-Dart=g,enum,enumerations
+--kinddef-Dart=t,typedef,type definitions and extensions
+--kinddef-Dart=f,function,top-level functions
+--kinddef-Dart=m,method,methods (incl. getters/setters/constructors)
+--kinddef-Dart=v,member,fields and top-level variables
+--kinddef-Dart=n,namespace,libraries and parts
+
+# Universal Ctags 的 {exclusive} 标志位：命中后不再尝试后续 regex，
+# 用来从源头杜绝同一行被多条 regex 重复抽取（典型如 getter 同时被 field
+# 命中）。书写顺序即匹配优先级：从特异 → 通用。
+
+# ---- 库与分块（最特异，优先匹配并 exclusive 截断） -----------------
+# library foo.bar;
+--regex-Dart=/^[ \t]*library[ \t]+([A-Za-z_][A-Za-z0-9_.]*)[ \t]*;/\1/n/{exclusive}
+# part of foo.bar;
+--regex-Dart=/^[ \t]*part[ \t]+of[ \t]+([A-Za-z_][A-Za-z0-9_.]*)[ \t]*;/\1/n/{exclusive}
+
+# ---- 类型层（class/mixin/extension/enum/typedef） ------------------
+# class / abstract class / sealed class / base class / final class / interface class
+--regex-Dart=/^[ \t]*(abstract[ \t]+|sealed[ \t]+|base[ \t]+|final[ \t]+|interface[ \t]+)*class[ \t]+([A-Za-z_][A-Za-z0-9_]*)/\2/c/{exclusive}
+
+# mixin（含 mixin class、base mixin）
+--regex-Dart=/^[ \t]*(base[ \t]+)?mixin[ \t]+(class[ \t]+)?([A-Za-z_][A-Za-z0-9_]*)/\3/i/{exclusive}
+
+# extension MyExt on Foo  /  extension type Bar(...)
+--regex-Dart=/^[ \t]*extension[ \t]+(type[ \t]+)?([A-Za-z_][A-Za-z0-9_]*)/\2/t/{exclusive}
+
+# enum
+--regex-Dart=/^[ \t]*enum[ \t]+([A-Za-z_][A-Za-z0-9_]*)/\1/g/{exclusive}
+
+# typedef MyCb = void Function(...);  /  typedef OldStyle(int x);
+--regex-Dart=/^[ \t]*typedef[ \t]+([A-Za-z_][A-Za-z0-9_]*)/\1/t/{exclusive}
+
+# ---- 函数与方法（含 getter/setter/构造器） -------------------------
+# getter（含抽象声明 `Type get name;`，body 用 { / => / ; 都覆盖）
+--regex-Dart=/^[ \t]*([A-Za-z_][A-Za-z0-9_<>?,. \t]*[ \t]+)?get[ \t]+([A-Za-z_][A-Za-z0-9_]*)[ \t]*[{=;]/\2/m/{exclusive}
+
+# setter
+--regex-Dart=/^[ \t]*set[ \t]+([A-Za-z_][A-Za-z0-9_]*)[ \t]*\(/\1/m/{exclusive}
+
+# 命名构造器  ClassName.named(...)
+--regex-Dart=/^[ \t]*(factory[ \t]+|const[ \t]+)?[A-Za-z_][A-Za-z0-9_]*\.([A-Za-z_][A-Za-z0-9_]*)[ \t]*\([^;{=]*\)[ \t]*[:{=]/\2/m/{exclusive}
+
+# 显式返回类型的方法/函数：  ReturnType<Generic> name(...) { / => / async {
+--regex-Dart=/^[ \t]*(static[ \t]+|external[ \t]+|@override[ \t]+)*([A-Za-z_][A-Za-z0-9_<>?,. \t]*?)[ \t]+([A-Za-z_][A-Za-z0-9_]*)[ \t]*\([^;{=]*\)[ \t]*(async\*?|sync\*?)?[ \t]*[{=]/\3/m/{exclusive}
+
+# 无返回类型 / void 关键字 / 默认构造器：行首即 name(
+--regex-Dart=/^[ \t]*(static[ \t]+|external[ \t]+|factory[ \t]+|const[ \t]+)?([A-Za-z_][A-Za-z0-9_]*)[ \t]*\([^;{=]*\)[ \t]*(async\*?|sync\*?)?[ \t]*[:{=]/\2/m/{exclusive}
+
+# ---- 字段 / 顶级变量（最弱，放最后兜底） ---------------------------
+# var / final / const name = ...;
+--regex-Dart=/^[ \t]*(var|final|const)[ \t]+([A-Za-z_][A-Za-z0-9_]*)[ \t]*[=;]/\2/v/{exclusive}
+# Type name = ... ;  /  late final Type name;  /  static const Foo bar = ...;
+--regex-Dart=/^[ \t]*(static[ \t]+|late[ \t]+|final[ \t]+|const[ \t]+|covariant[ \t]+)*[A-Za-z_][A-Za-z0-9_<>?,. \t]*[ \t]+([A-Za-z_][A-Za-z0-9_]*)[ \t]*[=;]/\2/v/{exclusive}

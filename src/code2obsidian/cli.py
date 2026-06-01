@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Optional, Set
 
 from . import __version__
 from .config import SAMPLE_TOML, find_config_path, load_config
-from .ctags import run_ctags
+from .ctags import _augment_lang_map_with_builtin_exts, run_ctags
 from .logging_utils import logger, setup_logging
 from .models import TaskCtx
 from .pipeline import run_pipeline
@@ -194,6 +194,7 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     include_exts = _parse_include_exts(cfg["include_ext"])
     lang_map = _normalize_lang_map(cfg.get("lang_map"))
+    lang_map = _augment_lang_map_with_builtin_exts(lang_map, include_exts)
     # 如果用户限定了扩展名，自动把 lang_map 中的 key 也加入白名单，
     # 避免“--include-ext .ts 却过滤掉被视为 TS 的 .ets”这种逆直觉陷阱。
     if include_exts and lang_map:

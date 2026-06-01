@@ -210,8 +210,12 @@ verbose = false
 
 # 将某些扩展名“视为”某种语言让 ctags 解析（如 ArkTS/.ets 当 TypeScript）。
 # key 为扩展名（包含点号），value 为 ctags 语言名；可用 `ctags --list-languages` 查看完整列表。
+#
+# 特别地，对于 ctags 原生不支持的语言（目前内建：Dart），只要 value 写成内建
+# 语言名，code2obsidian 会自动加载随包分发的 ctags 规则文件，无需你额外配置。
 [code2obsidian.lang_map]
 # ".ets" = "TypeScript"
 # ".mts" = "TypeScript"
 # ".cts" = "TypeScript"
+# ".dart" = "Dart"   # 内建支持：自动加载 resources/dart.ctags
 """
