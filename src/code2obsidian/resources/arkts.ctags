@@ -1,0 +1,62 @@
+--langdef=ArkTS
+--map-ArkTS=+.ets
+
+--kinddef-ArkTS=c,class,classes and component structs
+--kinddef-ArkTS=i,interface,interfaces
+--kinddef-ArkTS=g,enum,enumerations
+--kinddef-ArkTS=t,typedef,type aliases
+--kinddef-ArkTS=f,function,functions and ArkUI builders
+--kinddef-ArkTS=m,method,methods and lifecycle hooks
+--kinddef-ArkTS=v,member,fields and state members
+--kinddef-ArkTS=n,namespace,namespaces and modules
+
+# ArkTS / ArkUI 规则说明：
+#   - .ets 由 ArkTS 语言接管，避免仅映射 TypeScript 时漏掉 `struct` 等 ArkTS 语法。
+#   - Universal Ctags 的 {exclusive} 命中后停止后续 regex，减少同一行重复抽取。
+#   - kind 名与 symbols.py 中的 CLASS_KINDS / FUNC_KINDS / MEMBER_KINDS /
+#     ALIAS_KINDS / NAMESPACE_KINDS 对齐，确保现有符号网无需额外改造。
+
+# ---- 命名空间与模块 ---------------------------------------------------
+# namespace Foo { / export namespace Foo {
+--regex-ArkTS=/^[ \t]*(export[ \t]+)?namespace[ \t]+([A-Za-z_$][A-Za-z0-9_$]*)/\2/n/{exclusive}
+# module Foo { / declare module Foo {
+--regex-ArkTS=/^[ \t]*(export[ \t]+|declare[ \t]+)*module[ \t]+['\"]?([A-Za-z_$][A-Za-z0-9_.$\/-]*)['\"]?/\2/n/{exclusive}
+
+# ---- ArkUI 组件与类型层 ----------------------------------------------
+# @Entry @Component struct Index { / export struct CardView {
+--regex-ArkTS=/^[ \t]*(@[A-Za-z_$][A-Za-z0-9_$]*(\([^)]*\))?[ \t]+)*(export[ \t]+|default[ \t]+)*struct[ \t]+([A-Za-z_$][A-Za-z0-9_$]*)/\4/c/{exclusive}
+# class / abstract class / decorated class
+--regex-ArkTS=/^[ \t]*(@[A-Za-z_$][A-Za-z0-9_$]*(\([^)]*\))?[ \t]+)*(export[ \t]+|default[ \t]+|abstract[ \t]+)*class[ \t]+([A-Za-z_$][A-Za-z0-9_$]*)/\4/c/{exclusive}
+# interface
+--regex-ArkTS=/^[ \t]*(export[ \t]+|default[ \t]+|declare[ \t]+)*interface[ \t]+([A-Za-z_$][A-Za-z0-9_$]*)/\2/i/{exclusive}
+# enum / const enum
+--regex-ArkTS=/^[ \t]*(export[ \t]+|default[ \t]+|declare[ \t]+|const[ \t]+)*enum[ \t]+([A-Za-z_$][A-Za-z0-9_$]*)/\2/g/{exclusive}
+# type Foo = ...
+--regex-ArkTS=/^[ \t]*(export[ \t]+|declare[ \t]+)*type[ \t]+([A-Za-z_$][A-Za-z0-9_$]*)[ \t]*=/\2/t/{exclusive}
+
+# ---- ArkUI 装饰器函数 -------------------------------------------------
+# @Builder function ItemBuilder(...) { / @Styles function cardStyle() {
+--regex-ArkTS=/^[ \t]*@[A-Za-z_$][A-Za-z0-9_$]*(\([^)]*\))?[ \t]+(export[ \t]+|async[ \t]+)*function[ \t]+([A-Za-z_$][A-Za-z0-9_$]*)[ \t]*\(/\3/f/{exclusive}
+# @Extend(Text) function fancy(...) {
+--regex-ArkTS=/^[ \t]*@Extend[ \t]*\([^)]*\)[ \t]+(export[ \t]+|async[ \t]+)*function[ \t]+([A-Za-z_$][A-Za-z0-9_$]*)[ \t]*\(/\2/f/{exclusive}
+
+# ---- 函数与方法 -------------------------------------------------------
+# export default function foo(...) / async function foo(...)
+--regex-ArkTS=/^[ \t]*(export[ \t]+|default[ \t]+|async[ \t]+)*function[ \t]+([A-Za-z_$][A-Za-z0-9_$]*)[ \t]*\(/\2/f/{exclusive}
+# const foo = (...) => ... / let foo = function (...) ...
+--regex-ArkTS=/^[ \t]*(export[ \t]+)?(const|let|var)[ \t]+([A-Za-z_$][A-Za-z0-9_$]*)[ \t]*=[ \t]*(async[ \t]+)?(function[ \t]*)?\(?[^=;]*\)?[ \t]*=>/\3/f/{exclusive}
+--regex-ArkTS=/^[ \t]*(export[ \t]+)?(const|let|var)[ \t]+([A-Za-z_$][A-Za-z0-9_$]*)[ \t]*=[ \t]*(async[ \t]+)?function[ \t]*\(/\3/f/{exclusive}
+# build() { / aboutToAppear() { / private renderItem(...) {
+# 方法名收窄为小写开头，避免把 ArkUI DSL 中的 Column()/Text() 组件调用误识别为方法。
+--regex-ArkTS=/^[ \t]*(public[ \t]+|private[ \t]+|protected[ \t]+|static[ \t]+|async[ \t]+|override[ \t]+)*([a-z_$][A-Za-z0-9_$]*)[ \t]*\([^;{=]*\)[ \t]*(:[ \t]*[A-Za-z_$][A-Za-z0-9_$<>,. \t\[\]?|&]*)?[ \t]*\{/\2/m/{exclusive}
+# getter / setter
+--regex-ArkTS=/^[ \t]*(public[ \t]+|private[ \t]+|protected[ \t]+|static[ \t]+)*get[ \t]+([A-Za-z_$][A-Za-z0-9_$]*)[ \t]*\(/\2/m/{exclusive}
+--regex-ArkTS=/^[ \t]*(public[ \t]+|private[ \t]+|protected[ \t]+|static[ \t]+)*set[ \t]+([A-Za-z_$][A-Za-z0-9_$]*)[ \t]*\(/\2/m/{exclusive}
+
+# ---- 成员与状态变量 ---------------------------------------------------
+# @State message: string = 'Hello' / @Prop title?: string / @ObjectLink item: Item
+--regex-ArkTS=/^[ \t]*(@[A-Za-z_$][A-Za-z0-9_$]*(\([^)]*\))?[ \t]+)+(private[ \t]+|protected[ \t]+|public[ \t]+|static[ \t]+|readonly[ \t]+)*([A-Za-z_$][A-Za-z0-9_$]*)[!?]?[ \t]*:[ \t]*([^=;{]+)/\4/v/{exclusive}
+# private count: number = 0 / readonly name?: string
+--regex-ArkTS=/^[ \t]*(public[ \t]+|private[ \t]+|protected[ \t]+|static[ \t]+|readonly[ \t]+)*(let[ \t]+|const[ \t]+|var[ \t]+)?([A-Za-z_$][A-Za-z0-9_$]*)[!?]?[ \t]*:[ \t]*([^=;{]+)[ \t]*[=;]/\3/v/{exclusive}
+# const count = 0 / let title = 'x'
+--regex-ArkTS=/^[ \t]*(export[ \t]+)?(const|let|var)[ \t]+([A-Za-z_$][A-Za-z0-9_$]*)[ \t]*[=:;]/\3/v/{exclusive}

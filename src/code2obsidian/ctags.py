@@ -13,20 +13,23 @@ from .logging_utils import logger
 # 内建语言规则：value 是该语言对应的 *.ctags 配置文件名（与 resources/ 同目录）
 #
 # 设计原则：
-#   - ctags 原生不支持的语言（如 Dart），通过 `--options=<file>` 注入用户级
-#     `--langdef`/`--regex-XXX` 规则，避免污染用户全局配置。
+#   - ctags 原生不支持或支持不完整的语言（如 Dart、ArkTS），通过
+#     `--options=<file>` 注入用户级 `--langdef`/`--regex-XXX` 规则，避免污染用户全局配置。
 #   - 仅当 lang_map 中真的出现该语言时才注入，零侵入。
 #   - kind 名必须与 symbols.py 的 CLASS_KINDS / FUNC_KINDS / MEMBER_KINDS /
 #     ALIAS_KINDS / NAMESPACE_KINDS 对齐，确保依赖解析与渲染零修改可复用。
 # ---------------------------------------------------------------------------
 _BUILTIN_LANG_RULES: Dict[str, str] = {
+    "arkts": "arkts.ctags",
     "dart": "dart.ctags",
 }
 
-# 内建语言对应的默认扩展名。用于把 `--include-ext .dart` 这种仅过滤扩展名的
-# 调用方式自动补全成 lang_map，避免用户还要额外记一遍 `--lang-map .dart=Dart`。
+# 内建语言对应的默认扩展名。用于把 `--include-ext .dart` / `--include-ext .ets`
+# 这种仅过滤扩展名的调用方式自动补全成 lang_map，避免用户还要额外记一遍
+# `--lang-map .dart=Dart` / `--lang-map .ets=ArkTS`。
 _BUILTIN_EXT_LANGS: Dict[str, str] = {
     ".dart": "Dart",
+    ".ets": "ArkTS",
 }
 
 _RESOURCES_DIR = os.path.join(os.path.dirname(__file__), "resources")

@@ -90,12 +90,41 @@ def test_augment_lang_map_with_builtin_dart_include_ext():
     assert _augment_lang_map_with_builtin_exts({}, {".dart"}) == {".dart": "Dart"}
 
 
+def test_augment_lang_map_with_builtin_ets_include_ext():
+    """只配置 include_ext=.ets 时，也应自动启用 ArkTS 内建规则。"""
+    assert _augment_lang_map_with_builtin_exts({}, {".ets"}) == {".ets": "ArkTS"}
+
+
+def test_augment_lang_map_with_builtin_multi_include_exts():
+    assert _augment_lang_map_with_builtin_exts({}, {".dart", ".ets"}) == {
+        ".dart": "Dart",
+        ".ets": "ArkTS",
+    }
+
+
 def test_augment_lang_map_keeps_explicit_mapping():
     """显式 lang_map 优先，自动补全不能覆盖用户配置。"""
     assert _augment_lang_map_with_builtin_exts({".dart": "TypeScript"}, {".dart"}) == {
         ".dart": "TypeScript",
     }
+    assert _augment_lang_map_with_builtin_exts({".ets": "JavaScript"}, {".ets"}) == {
+        ".ets": "JavaScript",
+    }
 
 
 def test_augment_lang_map_ignores_unknown_include_ext():
     assert _augment_lang_map_with_builtin_exts({}, {".py"}) == {}
+
+
+def test_builtin_arkts_rule_file_shipped():
+    """随包分发的 arkts.ctags 必须存在，否则 .ets 会退化。"""
+    rule_path = Path(_RESOURCES_DIR) / _BUILTIN_LANG_RULES["arkts"]
+    assert rule_path.is_file(), f"missing builtin rule: {rule_path}"
+
+
+def test_resolve_builtin_options_for_arkts():
+    args = _resolve_builtin_options({".ets": "ArkTS"})
+    assert len(args) == 1
+    assert args[0].startswith("--options=")
+    rule_path = args[0].split("=", 1)[1]
+    assert Path(rule_path).is_file()

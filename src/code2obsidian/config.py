@@ -27,7 +27,7 @@ def _norm(key: str) -> str:
 ALLOWED_KEYS = {
     "source", "output", "model", "url", "threads", "timeout",
     "retries", "include_ext", "no_ai", "force", "verbose",
-    "lang_map",  # dict[str, str]: 扩展名 → ctags 语言名，如 {".ets": "TypeScript"}
+    "lang_map",  # dict[str, str]: 扩展名 → ctags 语言名，如 {".ets": "ArkTS"}
 }
 
 
@@ -208,14 +208,15 @@ no_ai   = false
 force   = false
 verbose = false
 
-# 将某些扩展名“视为”某种语言让 ctags 解析（如 ArkTS/.ets 当 TypeScript）。
+# 将某些扩展名“视为”某种语言让 ctags 解析（如 .ets 使用内建 ArkTS 规则）。
 # key 为扩展名（包含点号），value 为 ctags 语言名；可用 `ctags --list-languages` 查看完整列表。
 #
-# 特别地，对于 ctags 原生不支持的语言（目前内建：Dart），只要 value 写成内建
-# 语言名，code2obsidian 会自动加载随包分发的 ctags 规则文件，无需你额外配置。
+# 对于常见内建扩展名（目前：.ets -> ArkTS、.dart -> Dart），只配置
+# include_ext 也会自动启用对应解析规则；显式 lang_map 仍然优先。
+# ArkTS / Dart 都会自动加载随包分发的 ctags 规则文件，无需你额外配置。
 [code2obsidian.lang_map]
-# ".ets" = "TypeScript"
+# ".ets" = "ArkTS"     # 可省略：include_ext = ".ets" 时会自动加载 resources/arkts.ctags
 # ".mts" = "TypeScript"
 # ".cts" = "TypeScript"
-# ".dart" = "Dart"   # 内建支持：自动加载 resources/dart.ctags
+# ".dart" = "Dart"    # 可省略：include_ext = ".dart" 时会自动加载 resources/dart.ctags
 """
